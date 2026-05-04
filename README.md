@@ -97,27 +97,35 @@ ngrok http 8000
 
 ## 心得報告
 
-**姓名**：洪紹禎
-**學號**：D1249373
+**姓名**：陳婉榕
+**學號**：D1285534
 
 **Q1. 你在 `/linebot-implement` Skill 的「注意事項」寫了哪些規則？為什麼這樣寫？**
 
-> 我在 Skill 中加入了幾條注意事項：第一，Webhook handler 必須使用 async 函式，且耗時的外部 API 呼叫（如 Gemini、twstock）要用 `asyncio.to_thread` 包起來，避免阻塞 event loop；第二，LINE 的 reply token 有效期約一分鐘，若處理時間過長會導致回覆失敗；第三，Gemini 回傳的文字可能包含 Markdown 語法（如 `**粗體**`），LINE 不會渲染，需要在回傳前手動清除。這些規則都是因為初版程式直接踩到這些坑才補上的。
+> 我在注意事項中要求程式必須使用 FastAPI 建立 LINE Webhook，並且要能接收使用者訊息後回覆 LINE 訊息。同時也規定環境變數要從 .env 讀取，不能把 LINE token、channel secret、Gemini API key 寫死在程式裡。另外也提醒要使用 SQLite 儲存資料，並且要處理基本錯誤，例如使用者輸入格式錯誤、API 查詢失敗或資料庫連線問題。
+
+這樣寫是因為 LINE Bot 需要和外部服務串接，如果 token 寫死會有安全問題；而且作業目標是做出可以執行、可以回覆訊息的 Bot，所以 Skill 裡必須把 Webhook、AI 回覆、資料庫和錯誤處理都寫清楚，AI 產生的程式才比較接近可直接執行。
 
 ---
 
 **Q2. 你的 Skill 第一次執行後，AI 產出的程式直接能跑嗎？需要修改哪些地方？修改後有沒有更新 Skill？**
 
-> 第一次產出的程式可以啟動，LINE 也能收到 Webhook，但會出現「已讀不回」的問題。原因是 `process_message` 是同步函式，直接在 async handler 裡呼叫會阻塞 event loop，導致 reply token 在回覆送出前就過期。修正方式是改用 `asyncio.to_thread(process_message, ...)` 包起來。此外，Gemini 模型名稱也需要根據目前 API 支援情況調整，並加入備用模型的 fallback 機制。這些問題修正後有更新 Skill 的注意事項。
+> 第一次產出的程式大致架構可以使用，但沒有完全直接成功執行。我有修改環境變數名稱、LINE Webhook callback 路徑，以及部分套件匯入方式，讓它和 requirements.txt、.env.example 對應一致。另外也有補上 SQLite 資料表初始化，避免第一次執行時因為找不到資料表而出錯。
+
+修改後我有把這些容易出錯的地方更新回 /linebot-implement Skill，例如要求 AI 必須自動建立資料表、環境變數名稱要固定、callback 路徑要使用 /callback，讓之後產生的程式更穩定。
 
 ---
 
 **Q3. 你遇到什麼問題是 AI 沒辦法自己解決、需要你介入處理的？**
 
-> 最主要的問題是 Gemini 模型的可用性。AI 產出的程式使用了 `gemini-2.0-flash`，但該模型後來被下架；改用 `gemini-2.5-flash` 後，又因為流量過高收到 503 錯誤。這類「哪個模型現在實際可用」的問題 AI 無法預先知道，需要我自己去查 Google AI Studio 的文件確認，再告訴 AI 要改成哪個版本。另外，ngrok 每次重啟都會換網址，需要手動更新 LINE Developers Console 的 Webhook URL，這也是 AI 無法自動處理的操作。
+> 主要是 LINE Developers Console 和 ngrok 的設定需要自己處理。AI 可以提供程式碼和設定步驟，但實際的 Channel Access Token、Channel Secret、Gemini API Key 都需要我自己建立並填入 .env。另外，Webhook URL 也需要我自己把 ngrok 產生的 HTTPS 網址貼到 LINE Developers Console，並確認 /callback 路徑是否正確。
+
+還有截圖 screenshots/chat.png 也必須由我實際測試 LINE Bot 對話後取得，AI 無法代替我完成真實的 LINE 測試流程。
 
 ---
 
 **Q4. 如果你要把這個 LINE Bot 讓朋友使用，你還需要做什麼？**
 
-> 目前架構跑在本機 + ngrok，關掉電腦 Bot 就離線，不適合給朋友長期使用。若要正式開放，需要：一、部署到雲端伺服器（如 Railway、Render 或 GCP）取得固定的 HTTPS 網址；二、把 API 金鑰透過雲端環境變數設定，不能把 `.env` 一起上傳到 GitHub；三、考慮加入錯誤通知機制，當 Gemini API 連續失敗時能即時收到警告；四、twstock 的即時報價在非交易時段會回傳失敗，需要對使用者給出更友善的提示。
+> 如果要讓朋友使用，不能只在本機用 ngrok 測試，還需要把程式部署到可以長時間運作的雲端平台，例如 Render、Railway 或其他伺服器。接著要把正式的 Webhook URL 設定到 LINE Developers Console，並確認伺服器不會因為本機關閉而中斷。
+
+另外，也需要保護 .env 裡面的 token，不可以上傳到 GitHub。若使用 SQLite，也要考慮資料備份和多人使用時的穩定性。最後還需要測試不同使用者輸入，例如股票代號錯誤、API 查不到資料、Gemini 回覆失敗等情況，避免朋友使用時 Bot 沒有回應。
